@@ -6,7 +6,8 @@ import os
 from typing import Optional
 
 MODEL_PATH = '/tmp/model.pkl'
-
+# built with knowledge of hmmmlearn and what a GaussianHMM is
+#Watched youtube videos for help
 class RegimeHMM:
     def __init__(self, n_states: int = 3):
         self.n_states = n_states

@@ -1,123 +1,163 @@
-from fastapi import FastAPI, HTTPException, Depends
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import List, Optional
-from datetime import datetime
-import os
+from typing import Dict, Any, Optional
+import numpy as np
+import pandas as pd
+from fastapi.middleware.cors import CORSMiddleware
 
-from database.supabase_client import get_supabase_client
+from .load_data import get_latest_df
+from .hmm import RegimeHMM
+from .trading import generate_signal
+from .backtest import run_backtest
 
-app = FastAPI(title="CRUD API", version="1.0.0")
+app = FastAPI(title="Regime-Switching Trading Engine", version="1.0.0")
 
-# CORS middleware to allow Next.js frontend
+# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # Next.js default port
+    allow_origins=["http://localhost:8083"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Pydantic models
-class ItemCreate(BaseModel):
-    name: str
-    description: Optional[str] = None
+# Global model instance
+hmm_model: Optional[RegimeHMM] = None
 
-class ItemUpdate(BaseModel):
-    name: Optional[str] = None
-    description: Optional[str] = None
+class RegimeResponse(BaseModel):
+    """Response model for regime probabilities."""
+    bull_probability: float
+    bear_probability: float
+    sideways_probability: float
+    timestamp: str
 
-class Item(BaseModel):
-    id: int
-    name: str
-    description: Optional[str] = None
-    created_at: str
-    updated_at: str
+class SignalResponse(BaseModel):
+    """Response model for trading signals."""
+    action: str
+    confidence: float
+    regime_probs: list[float]
+    weighted_signal: float
+    timestamp: str
 
-    class Config:
-        from_attributes = True
+class BacktestResponse(BaseModel):
+    """Response model for backtest results."""
+    strategy_metrics: Dict[str, float]
+    benchmark_metrics: Dict[str, float]
+    strategy_cumulative: list[float]
+    benchmark_cumulative: list[float]
+    dates: list[str]
 
-# CRUD endpoints
-@app.get("/")
-async def root():
-    return {"message": "FastAPI CRUD API is running"}
-
-@app.get("/api/items", response_model=List[Item])
-async def get_items(supabase=Depends(get_supabase_client)):
-    """Get all items"""
-    try:
-        response = supabase.table("items").select("*").order("created_at", desc=True).execute()
-        items = response.data
-        return items
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/api/items/{item_id}", response_model=Item)
-async def get_item(item_id: int, supabase=Depends(get_supabase_client)):
-    """Get a single item by ID"""
-    try:
-        response = supabase.table("items").select("*").eq("id", item_id).execute()
-        if not response.data:
-            raise HTTPException(status_code=404, detail="Item not found")
-        return response.data[0]
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/api/items", response_model=Item, status_code=201)
-async def create_item(item: ItemCreate, supabase=Depends(get_supabase_client)):
-    """Create a new item"""
-    try:
-        response = supabase.table("items").insert({
-            "name": item.name,
-            "description": item.description
-        }).execute()
-        if not response.data:
-            raise HTTPException(status_code=400, detail="Failed to create item")
-        return response.data[0]
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.put("/api/items/{item_id}", response_model=Item)
-async def update_item(item_id: int, item: ItemUpdate, supabase=Depends(get_supabase_client)):
-    """Update an existing item"""
-    try:
-        # Check if item exists
-        check_response = supabase.table("items").select("id").eq("id", item_id).execute()
-        if not check_response.data:
-            raise HTTPException(status_code=404, detail="Item not found")
+def get_or_create_model() -> RegimeHMM:
+    """
+    Get or create the HMM model instance.
+    Returns:
+        RegimeHMM: Fitted HMM model.
+    """
+    global hmm_model
+    
+    if hmm_model is None:
+        # Load data and fit model
+        df = get_latest_df()
+        if df.empty:
+            raise HTTPException(status_code=500, detail="No data available")
         
-        # Build update dict (only include provided fields)
-        update_data = {}
-        if item.name is not None:
-            update_data["name"] = item.name
-        if item.description is not None:
-            update_data["description"] = item.description
-        
-        response = supabase.table("items").update(update_data).eq("id", item_id).execute()
-        return response.data[0]
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        hmm_model = RegimeHMM(n_states=3)
+        try:
+            hmm_model.fit(df)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Model fitting failed: {str(e)}")
+    
+    return hmm_model
 
-@app.delete("/api/items/{item_id}", status_code=204)
-async def delete_item(item_id: int, supabase=Depends(get_supabase_client)):
-    """Delete an item"""
+@app.get("/health")
+async def health_check() -> Dict[str, str]:
+    """
+    Health check endpoint.
+    Returns:
+        Dict[str, str]: Health status.
+    """
+    return {"status": "ok"}
+
+@app.get("/regime/latest", response_model=RegimeResponse)
+async def get_latest_regime() -> RegimeResponse:
+    """
+    Get latest regime probabilities.
+    Returns:
+        RegimeResponse: Current regime probabilities.
+    """
     try:
-        # Check if item exists
-        check_response = supabase.table("items").select("id").eq("id", item_id).execute()
-        if not check_response.data:
-            raise HTTPException(status_code=404, detail="Item not found")
+        model = get_or_create_model()
+        df = get_latest_df()
         
-        supabase.table("items").delete().eq("id", item_id).execute()
-        return None
-    except HTTPException:
-        raise
+        if df.empty:
+            raise HTTPException(status_code=500, detail="No data available")
+        
+        # Use last 30 days for prediction
+        tail_df = df.tail(30)
+        probs = model.predict_proba(tail_df)
+        
+        return RegimeResponse(
+            bull_probability=float(probs[0]),
+            bear_probability=float(probs[1]),
+            sideways_probability=float(probs[2]),
+            timestamp=str(df.index[-1])
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+@app.get("/signal/latest", response_model=SignalResponse)
+async def get_latest_signal() -> SignalResponse:
+    """
+    Get latest trading signal.
+    Returns:
+        SignalResponse: Current trading signal.
+    """
+    try:
+        model = get_or_create_model()
+        df = get_latest_df()
+        
+        if df.empty:
+            raise HTTPException(status_code=500, detail="No data available")
+        
+        # Use last 30 days for prediction
+        tail_df = df.tail(30)
+        probs = model.predict_proba(tail_df)
+        
+        # Generate signal using last 200 days for strategy calculation
+        strategy_df = df.tail(200)
+        signal_data = generate_signal(probs, strategy_df)
+        
+        return SignalResponse(
+            action=signal_data["action"],
+            confidence=signal_data["confidence"],
+            regime_probs=signal_data["regime_probs"],
+            weighted_signal=signal_data["weighted_signal"],
+            timestamp=str(df.index[-1])
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/backtest", response_model=BacktestResponse)
+async def get_backtest_results(years: int = 10) -> BacktestResponse:
+    """
+    Get backtest results.
+    Args:
+        years (int): Number of years to backtest.
+    Returns:
+        BacktestResponse: Backtest results.
+    """
+    try:
+        results = run_backtest(years=years, lookback_years = 3)
+        
+        if "error" in results:
+            raise HTTPException(status_code=500, detail=results["error"])
+        
+        return BacktestResponse(
+            strategy_metrics=results["strategy_metrics"],
+            benchmark_metrics=results["benchmark_metrics"],
+            strategy_cumulative=results["strategy_cumulative"],
+            benchmark_cumulative=results["benchmark_cumulative"],
+            dates=results["dates"]
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
