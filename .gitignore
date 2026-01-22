@@ -11,11 +11,14 @@ ENV/
 *.egg-info/
 dist/
 build/
+*.pyc
 
 # Environment variables
 .env
 .env.local
 .env*.local
+.env.lambda
+# Note: .env.*.example files should be committed as templates
 
 # Next.js
 frontend/.next/
@@ -26,13 +29,63 @@ frontend/.env.development.local
 frontend/.env.test.local
 frontend/.env.production.local
 
+# Markdown files (except README.md)
+**/*.md
+!README.md
+!**/README.md
+
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+*.sublime-project
+*.sublime-workspace
 
 # OS
 .DS_Store
 Thumbs.db
+
+# AWS/Lambda deployment files
+samconfig.toml
+.aws-sam/
+*.zip
+*.tar.gz
+function.zip
+template-output.yaml
+packaged.yaml
+
+# Data cache files
+*.parquet
+*.pkl
+*.pickle
+app/data_cache.parquet
+/tmp/
+
+# Docker
+# Note: .dockerignore should be committed, not ignored
+
+# Logs
+*.log
+logs/
+*.log.*
+
+# Testing
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.hypothesis/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json

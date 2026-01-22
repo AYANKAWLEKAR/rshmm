@@ -1,0 +1,57 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Regime-Switching Trading Engine Lambda Function
+
+Globals:
+  Function:
+    Timeout: 600  # 10 minutes for backtest endpoint
+    MemorySize: 2048  # 2GB for model fitting and backtest calculations
+    Runtime: python3.11
+
+Resources:
+  TradingEngineFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: lambda_handler.handler
+      Runtime: python3.11
+      Timeout: 600
+      MemorySize: 2048
+      Environment:
+        Variables:
+          SYMBOL: SPY
+          ALLOWED_ORIGINS: !Ref AllowedOrigins
+          CACHE_PATH: /tmp/data_cache.parquet
+      Events:
+        ApiGateway:
+          Type: Api
+          Properties:
+            Path: /{proxy+}
+            Method: ANY
+      Policies:
+        - AWSLambdaBasicExecutionRole
+
+  TradingEngineApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: prod
+      Cors:
+        AllowMethods: "'*'"
+        AllowHeaders: "'*'"
+        AllowOrigin: !Sub "'${AllowedOrigins}'"
+        AllowCredentials: true
+
+Parameters:
+  AllowedOrigins:
+    Type: String
+    Default: http://localhost:3000,http://localhost:8083
+    Description: Comma-separated list of allowed CORS origins
+
+Outputs:
+  TradingEngineApi:
+    Description: "API Gateway endpoint URL"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/"
+  
+  TradingEngineFunction:
+    Description: "Lambda Function ARN"
+    Value: !GetAtt TradingEngineFunction.Arn

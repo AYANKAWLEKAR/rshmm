@@ -3,19 +3,30 @@ from pydantic import BaseModel
 from typing import Dict, Any, Optional
 import numpy as np
 import pandas as pd
+import os
 from fastapi.middleware.cors import CORSMiddleware
 
-from .load_data import get_latest_df
-from .hmm import RegimeHMM
-from .trading import generate_signal
-from .backtest import run_backtest
+from load_data import get_latest_df
+from hmm import RegimeHMM
+from trading import generate_signal
+from backtest import run_backtest
 
 app = FastAPI(title="Regime-Switching Trading Engine", version="1.0.0")
+
+# Configure CORS dynamically via environment variable
+# Supports comma-separated list of origins
+allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "")
+if allowed_origins_env:
+    # Parse comma-separated origins from environment variable
+    allowed_origins = [origin.strip() for origin in allowed_origins_env.split(",")]
+else:
+    # Default to localhost origins for development
+    allowed_origins = ["http://localhost:3000", "http://localhost:8083"]
 
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8083"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

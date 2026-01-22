@@ -1,9 +1,9 @@
 import numpy as np
 import pandas as pd
 from typing import Dict, Any, Tuple
-from .load_data import get_latest_df
-from .hmm import RegimeHMM
-from .trading import generate_signal
+from load_data import get_latest_df
+from hmm import RegimeHMM
+from trading import generate_signal
 
 def calculate_returns(df: pd.DataFrame) -> pd.Series:
     close_prices = df['Close']

@@ -4,7 +4,10 @@ import pandas as pd
 import yfinance as yf
 from typing import Optional, cast
 
-PARQUET_PATH = 'app/data_cache.parquet'
+# Use /tmp directory for Lambda compatibility (Lambda's writable space)
+# Fallback to current directory for local development
+CACHE_PATH = os.getenv('CACHE_PATH', '/tmp/data_cache.parquet')
+PARQUET_PATH = CACHE_PATH
 SYMBOL = os.getenv('SYMBOL', 'SPY')
 
 

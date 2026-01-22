@@ -1,111 +1,148 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import ItemList from '@/components/ItemList'
-import ItemForm from '@/components/ItemForm'
-import { Item } from '@/types/item'
+import ApiMethods from '@/components/ApiMethods'
+import RegimeDisplay from '@/components/RegimeDisplay'
+import SignalDisplay from '@/components/SignalDisplay'
+import BacktestResults from '@/components/BacktestResults'
+import { RegimeResponse, SignalResponse } from '@/types/api'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 export default function Home() {
-  const [items, setItems] = useState<Item[]>([])
-  const [loading, setLoading] = useState(true)
-  const [editingItem, setEditingItem] = useState<Item | null>(null)
+  const [regime, setRegime] = useState<RegimeResponse | null>(null)
+  const [signal, setSignal] = useState<SignalResponse | null>(null)
+  const [regimeLoading, setRegimeLoading] = useState(false)
+  const [signalLoading, setSignalLoading] = useState(false)
+  const [backtestYears, setBacktestYears] = useState(10)
+  const [autoRefresh, setAutoRefresh] = useState(false)
 
   useEffect(() => {
-    fetchItems()
+    fetchRegime()
+    fetchSignal()
   }, [])
 
-  const fetchItems = async () => {
+  useEffect(() => {
+    if (!autoRefresh) return
+
+    const interval = setInterval(() => {
+      fetchRegime()
+      fetchSignal()
+    }, 30000) // Refresh every 30 seconds
+
+    return () => clearInterval(interval)
+  }, [autoRefresh])
+
+  const fetchRegime = async () => {
     try {
-      setLoading(true)
-      const response = await fetch(`${API_URL}/api/items`)
-      if (!response.ok) throw new Error('Failed to fetch items')
+      setRegimeLoading(true)
+      const response = await fetch(`${API_URL}/regime/latest`)
+      if (!response.ok) throw new Error('Failed to fetch regime')
       const data = await response.json()
-      setItems(data)
+      setRegime(data)
     } catch (error) {
-      console.error('Error fetching items:', error)
-      alert('Failed to fetch items')
+      console.error('Error fetching regime:', error)
     } finally {
-      setLoading(false)
+      setRegimeLoading(false)
     }
   }
 
-  const handleCreate = async (name: string, description: string) => {
+  const fetchSignal = async () => {
     try {
-      const response = await fetch(`${API_URL}/api/items`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ name, description }),
-      })
-      if (!response.ok) throw new Error('Failed to create item')
-      await fetchItems()
+      setSignalLoading(true)
+      const response = await fetch(`${API_URL}/signal/latest`)
+      if (!response.ok) throw new Error('Failed to fetch signal')
+      const data = await response.json()
+      setSignal(data)
     } catch (error) {
-      console.error('Error creating item:', error)
-      alert('Failed to create item')
+      console.error('Error fetching signal:', error)
+    } finally {
+      setSignalLoading(false)
     }
-  }
-
-  const handleUpdate = async (id: number, name: string, description: string) => {
-    try {
-      const response = await fetch(`${API_URL}/api/items/${id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ name, description }),
-      })
-      if (!response.ok) throw new Error('Failed to update item')
-      await fetchItems()
-      setEditingItem(null)
-    } catch (error) {
-      console.error('Error updating item:', error)
-      alert('Failed to update item')
-    }
-  }
-
-  const handleDelete = async (id: number) => {
-    if (!confirm('Are you sure you want to delete this item?')) return
-    
-    try {
-      const response = await fetch(`${API_URL}/api/items/${id}`, {
-        method: 'DELETE',
-      })
-      if (!response.ok) throw new Error('Failed to delete item')
-      await fetchItems()
-    } catch (error) {
-      console.error('Error deleting item:', error)
-      alert('Failed to delete item')
-    }
-  }
-
-  const handleEdit = (item: Item) => {
-    setEditingItem(item)
   }
 
   return (
-    <main style={{ padding: '2rem', maxWidth: '1200px', margin: '0 auto' }}>
-      <h1 style={{ marginBottom: '2rem' }}>CRUD App</h1>
-      
+    <main style={{ padding: '2rem', maxWidth: '1400px', margin: '0 auto' }}>
       <div style={{ marginBottom: '2rem' }}>
-        <ItemForm
-          onSubmit={editingItem ? (name, desc) => handleUpdate(editingItem.id, name, desc) : handleCreate}
-          initialData={editingItem}
-          onCancel={() => setEditingItem(null)}
-        />
+        <h1 style={{ marginBottom: '0.5rem', fontSize: '2rem', fontWeight: '700' }}>
+          Regime-Switching Trading Engine
+        </h1>
+        <p style={{ color: '#666', fontSize: '1rem' }}>
+          Monitor market regimes, trading signals, and backtest results
+        </p>
       </div>
 
-      {loading ? (
-        <p>Loading items...</p>
-      ) : (
-        <ItemList
-          items={items}
-          onEdit={handleEdit}
-          onDelete={handleDelete}
-        />
-      )}
+      {/* Auto-refresh toggle */}
+      <div style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={autoRefresh}
+            onChange={(e) => setAutoRefresh(e.target.checked)}
+            style={{ cursor: 'pointer' }}
+          />
+          <span style={{ fontSize: '0.875rem' }}>Auto-refresh every 30 seconds</span>
+        </label>
+        <button
+          onClick={() => {
+            fetchRegime()
+            fetchSignal()
+          }}
+          style={{
+            padding: '0.5rem 1rem',
+            background: '#0070f3',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            fontSize: '0.875rem',
+            cursor: 'pointer',
+          }}
+        >
+          Refresh Now
+        </button>
+      </div>
+
+      {/* Regime and Signal Display */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
+        <RegimeDisplay regime={regime} loading={regimeLoading} />
+        <SignalDisplay signal={signal} loading={signalLoading} />
+      </div>
+
+      {/* Backtest Section */}
+      <div style={{ marginBottom: '2rem' }}>
+        <div style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+          <h2 style={{ fontSize: '1.5rem', fontWeight: '600' }}>Backtest Results</h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <label style={{ fontSize: '0.875rem', fontWeight: '500' }}>Years:</label>
+            <select
+              value={backtestYears}
+              onChange={(e) => setBacktestYears(Number(e.target.value))}
+              style={{
+                padding: '0.5rem',
+                border: '1px solid #ddd',
+                borderRadius: '4px',
+                fontSize: '0.875rem',
+                cursor: 'pointer',
+              }}
+            >
+              {[1, 2, 3, 5, 10, 15, 20].map((year) => (
+                <option key={year} value={year}>
+                  {year}
+                </option>
+              ))}
+            </select>
+          </div>
+          <p style={{ fontSize: '0.75rem', color: '#666', fontStyle: 'italic' }}>
+            Note: Stock symbol is configured via backend environment variable (SYMBOL)
+          </p>
+        </div>
+        <BacktestResults years={backtestYears} />
+      </div>
+
+      {/* API Methods Section */}
+      <div style={{ marginTop: '3rem' }}>
+        <ApiMethods apiUrl={API_URL} />
+      </div>
     </main>
   )
 }
